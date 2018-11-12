@@ -1,4 +1,4 @@
-package org.nrg.hcp.megimporter.conf;
+package org.nrg.mqmeg.megimporter.conf;
 
 import org.apache.log4j.Logger;
 import org.nrg.framework.annotations.XnatPlugin;
@@ -10,7 +10,7 @@ import org.springframework.context.annotation.ComponentScan;
 			description = "Upload KIT MEG data"
 		)
 @ComponentScan({ 
-	"org.nrg.hcp.megimporter.components"
+	"org.nrg.mqmeg.megimporter.components"
 	})
 public class MEGImporterPlugin {
 	

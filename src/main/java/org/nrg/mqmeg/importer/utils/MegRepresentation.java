@@ -1,4 +1,4 @@
-package org.nrg.hcp.importer.utils;
+package org.nrg.mqmeg.importer.utils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -59,9 +59,9 @@ import org.nrg.xft.utils.SaveItemHelper;
 import org.nrg.xnat.turbine.utils.ArcSpecManager;
 import org.nrg.xnat.services.archive.CatalogService;
 
-public class HCPMegRepresentation {
+public class MegRepresentation {
 	
-	static Logger logger = Logger.getLogger(HCPMegRepresentation.class);
+	static Logger logger = Logger.getLogger(MegRepresentation.class);
 
 	private String patientID; 
 	private String subjectLbl;
@@ -72,34 +72,19 @@ public class HCPMegRepresentation {
     private XnatProjectdata proj;
     private final Map<String,TreeSet<XnatMegscandataBean>> scanTypeMap = new HashMap<String,TreeSet<XnatMegscandataBean>>();
     private final Map<String,TreeSet<XnatMegscandataBean>> usableScanTypeMap = new HashMap<String,TreeSet<XnatMegscandataBean>>();
-    private Map<String,Integer> sdCountMap = null;
-    private List<File> eegFiles;
 	private List<String> returnList = new ArrayList<String>();
 	
 	private ArrayList<MEGExperiment> scanList; 
 	private SortedMap<File,SortedMap<File,ArrayList<File>>> dirStructure;
 	
-	private static final String DEFAULT_EXT = "_MEG";
-	private static final String[] NOISE_FILES = { "c,rfDC","config" };
 	private static final String[] MEG_FILES = { "c,rfDC","hs_file","config","e,rfhp[0-9.]*Hz,COH","e,rfhp[0-9.]*Hz,COH1" };
     private static final Map<String,String> convertMap;
-    //private static final Map<String,Map<String,Long[]>> fileSizeMap;
-	//private static final DateFormat DDT_DF = new SimpleDateFormat("MM%dd%yy@HH_mm"); 
 	private static final DateFormat DDT_DF = new SimpleDateFormat("MM%dd%yy%HH%mm"); 
 	private static final String DDT_SUBST = "\\D"; 
 	private static final DateFormat SDA_DF = new SimpleDateFormat("MM/dd/yy HH:mm"); 
 	private static final DateFormat STD_DF = new SimpleDateFormat("MM%dd%yy"); 
-	private static final Pattern EPRIME_DP = Pattern.compile("_\\d\\d-\\d\\d-\\d\\d\\d\\d_\\d\\d.\\d\\d.\\d\\d"); 
-	private static final DateFormat EPRIME_DF = new SimpleDateFormat("MM-dd-yyyy_HH.mm.ss");
-	private static final SimpleDateFormat TIME_FMT = new SimpleDateFormat("HH:mm:ss");
-	private static enum TASK_TYPES { WM,MOTOR,SENT,STORY };
-	private static final String[] NOISE_STRINGS = { "Rnoise","Pnoise" };
-	private static final String[] TASK_STRINGS = { "Wrkmem","Motort","Sentnc","StoryM" };
-	private static final String[] OTHER_STRINGS = { "Restin", "Biocal" };
 	static final String NO_EPRIME_STR = "Uploader found no e-prime files for this scan";
 
-	// Per e-mail from Abbas, only series descriptions with "_B" should have EEG files attached
-	private static final String EEG_INCLUDE = "_B";
     static {
     	
         final Map<String,String> tmap = new HashMap<String,String>();
@@ -113,161 +98,12 @@ public class HCPMegRepresentation {
         tmap.put("Story","StoryM");
         convertMap = Collections.unmodifiableMap(tmap);
     }
-    
-	private static final Comparator<File> eprimeFileCompare = new Comparator<File>() {
-		@Override
-		public int compare(File arg0, File arg1) {
-			final Date d0 = getDateFromEprimeFile(arg0);
-			final Date d1 = getDateFromEprimeFile(arg1);
-			if (d0!=null && d1!=null && !d0.equals(d1)) {
-				return d0.compareTo(d1);
-			} else {
-				return arg0.getName().compareTo(arg1.getName());
-			}
-		}
-	};
-	
-	private static final Comparator<XnatMegscandataBean> scanCompare = new Comparator<XnatMegscandataBean>() {
-		@Override
-		public int compare(XnatMegscandataBean arg0, XnatMegscandataBean arg1) {
-			try {
-				return Float.valueOf(arg0.getId()).compareTo(Float.valueOf(arg1.getId()));
-			} catch (NumberFormatException e) {
-				final String numPart0 = arg0.getId().replaceAll("\\D", "");
-				final String numPart1 = arg1.getId().replaceAll("\\D", "");
-				if (!numPart0.equals(numPart1)) {
-					return numPart0.compareTo(numPart1);
-				}
-				return arg0.getId().compareTo(arg1.getId());
-			}
-		}
-	};
-
-	private static Date getDateFromEprimeFile(File zipFile) {
-		final Matcher matcher = EPRIME_DP.matcher(zipFile.getName());
-		if (matcher.find()) {
-			try {
-				return EPRIME_DF.parse(matcher.group().substring(1));
-			} catch (ParseException e1) { }
-		}
-		return null;
-	}
-	
-	/*
-	 * Create MEG Representation from tocf file contained in the archive.  Builds archive session from the representation.
-	 * @author Mike Hodge <hodgem@mir.wustl.edu>
-	 */
-	/*
-	public HCPMegRepresentation(File tocf) throws ClientException {
-		
-		try {
-			returnList.add("NOTE:  Upload is in older (tocf.txt) format");
-			final BufferedReader reader = new BufferedReader(new FileReader(tocf));
-			this.tocFile = tocf;
-			try {
-				String line;
-				boolean insideRun = false;
-				int pdfCount = 0;
-				MEGSession currentSession=null;
-				MEGScan currentScan=null;
-				MEGRun currentRun=null;
-				
-				// The first line contains exeriment label
-				this.expLbl = reader.readLine();
-				this.megDirectory = tocf.getParentFile();
-				
-				while ((line = reader.readLine()) != null) {
-					String[] lineComps = line.split("	");
-					
-					if (lineComps.length>=4 && lineComps[0].equals("PATIENT")) {
-						
-						this.patientID = dequote(lineComps[2]);
-						this.subjectLbl = dequote(lineComps[3]);
-						this.scanList = new ArrayList<MEGScan>();
-						
-					} else if (lineComps.length>=4 && lineComps[1].equals("SCAN")) {
-						
-						final MEGScan megScan = new MEGScan();
-						megScan.setScanID(dequote(lineComps[2]));
-						megScan.setScanLbl(dequote(lineComps[3]));
-						megScan.setSessionList(new ArrayList<MEGSession>());
-						scanList.add(megScan);
-						
-					} else if (lineComps.length>=5 && lineComps[2].equals("SESSION")) {
-						
-						final MEGSession  megSession = new MEGSession();
-						megSession.setSessionID(dequote(lineComps[3]));
-						megSession.setSessionDateStr(dequote(lineComps[4]));
-						megSession.setRunList(new ArrayList<MEGRun>());
-						currentScan = scanList.get(scanList.size()-1);
-						currentScan.getSessionList().add(megSession);
-						
-					} else if (lineComps.length>=6 && lineComps[3].equals("RUN")) {
-						
-						insideRun = true;
-						pdfCount = 0;
-						final MEGRun megRun = new MEGRun();
-						megRun.setRunID(dequote(lineComps[4]));
-						megRun.setRunLbl(dequote(lineComps[5]));
-						megRun.setFileList(new ArrayList<MEGFile>());
-						currentSession = currentScan.getSessionList().get(currentScan.getSessionList().size()-1); 
-						currentSession.getRunList().add(megRun);
-						
-					} else if (lineComps.length>=4 && lineComps[3].equals("/RUN")) {
-						
-						insideRun = false;
-						
-					} else if (insideRun) {
-						
-						final MEGFile megFile = new MEGFile();
-						megFile.setFileType(dequote(lineComps[4]));
-						if (megFile.getFileType().equals("CONFIG")) {
-							megFile.setFileIn("config");
-							megFile.setFileOut("config");
-						} else if (megFile.getFileType().equals("HS_FILE")) {
-							megFile.setFileIn("hs_file");
-							megFile.setFileOut("hs_file");
-						} else if (megFile.getFileType().equals("PDF")) {
-							// Note:  filename starts from 0, so set this pre-increment
-							megFile.setFileIn(Integer.toString(pdfCount));
-							megFile.setFileOut(dequote(lineComps[5]));
-							pdfCount++;
-						} else {
-							throw new ClientException("ERROR:  Unexpected tocf file type (" + megFile.getFileType() + ")",new Exception());
-						}
-						currentRun = currentSession.getRunList().get(currentSession.getRunList().size()-1); 
-						currentRun.getFileList().add(megFile);
-						
-					}
-					
-				}
-				reader.close();
-				// re-order sessions within scans by date, then order scans by containing session date
-				for (final MEGScan scan : scanList) {
-					Collections.sort(scan.getSessionList());
-				}
-				Collections.sort(scanList);
-				
-			} catch (IOException e) {
-				throw new ClientException(e.getMessage(),new Exception());
-			} finally {
-				try {
-					reader.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-		} catch (FileNotFoundException e) {
-			throw new ClientException(e.getMessage(),new Exception());
-		}
-		
-	}*/
 	
 	/*
 	 * Create MEG Representation from newer format (no tocf file).  Builds archive session from the representation.
 	 * @author Mike Hodge <hodgem@mir.wustl.edu>
 	 */
-	public HCPMegRepresentation(UserI user, XnatProjectdata proj, final String cachepath, String SubjID) throws ClientException {
+	public MegRepresentation(UserI user, XnatProjectdata proj, final String cachepath, String SubjID) throws ClientException {
 		final ArrayList<File> fileList = getFileListFromDir(new File(cachepath));
 
 		this.proj = proj;
@@ -313,36 +149,6 @@ public class HCPMegRepresentation {
 
 	}
 
-	private void populateScanTypeMaps(XnatMegscandataBean scan) {
-		String stype;
-		if (scan.getSeriesDescription().contains("Motor")) {
-			stype = TASK_TYPES.MOTOR.toString(); 
-		} else if (scan.getSeriesDescription().contains("Sentnc")) {
-			stype = TASK_TYPES.SENT.toString(); 
-		} else if (scan.getSeriesDescription().contains("Story")) {
-			stype = TASK_TYPES.STORY.toString(); 
-		} else if (scan.getSeriesDescription().contains("Wrkmem")) {
-			stype = TASK_TYPES.WM.toString(); 
-		} else {
-			return;
-		}
-		addScanToScanTypeMap(scan,stype,scanTypeMap);
-		if (scan.getQuality().equals("unusable")) {
-			return;
-		}
-		addScanToScanTypeMap(scan,stype,usableScanTypeMap);
-	}
-
-	private void addScanToScanTypeMap(XnatMegscandataBean scan, String stype, Map<String, TreeSet<XnatMegscandataBean>> imap) {
-		if (!imap.containsKey(stype)) {
-			final TreeSet<XnatMegscandataBean> sset = new TreeSet<XnatMegscandataBean>(scanCompare);
-			sset.add(scan);
-			imap.put(stype,sset);
-		} else {
-			imap.get(stype).add(scan);			
-		}
-		
-	}
 
 	private static String getFileExtension(File file)
 	{
@@ -350,73 +156,6 @@ public class HCPMegRepresentation {
         if(fileName.lastIndexOf(".") != -1 && fileName.lastIndexOf(".") != 0)
         return fileName.substring(fileName.lastIndexOf(".")+1);
 		else return "";
-	}
-
-	private SortedMap<File, SortedMap<File, ArrayList<File>>> getMegDirStructure(final ArrayList<File> zipList) throws ClientException {
-		
-		//this.subjectLbl = null;
-		
-		final Comparator<File> zipFileCompare = new Comparator<File>() {
-			@Override
-			public int compare(File arg0, File arg1) {
-				// Some comparisons will be of the same directory
-				if (arg0 == arg1 || arg0.equals(arg1)) {
-					return 0;
-				}
-				// directory beneath should be date named according to date and time
-				if (arg0.list().length==1 && arg1.list().length==1) {
-					final Date d0 = dirToDateTime(arg0.listFiles()[0]);
-					final Date d1 = dirToDateTime(arg1.listFiles()[0]);
-					if (d0!=null && d1!=null) {
-						return d0.compareTo(d1);
-					}
-				}
-				return arg0.getName().compareTo(arg1.getName());
-			}
-		};
-		
-		final SortedMap<File, SortedMap<File,ArrayList<File>>> returnMap = new TreeMap<File,SortedMap<File,ArrayList<File>>>(zipFileCompare);
-		
-		final Iterator<File> zipI = zipList.iterator();
-		while (zipI.hasNext()) {	
-			final File zipFile=zipI.next();
-			if (isMegFile(zipFile)) {
-				final File megParent = zipFile.getParentFile();
-				if (megParent==null) { 
-					throw new ClientException("MEG File found in unexpected directory location (No parent directory)");
-				}
-				final File megGGParent = (megParent.getParentFile()!=null) ? megParent.getParentFile().getParentFile() : null;
-				if (megGGParent==null) { 
-					throw new ClientException("MEG File found in unexpected directory location (No GG parent directory)");
-				}
-				if (megGGParent.getParentFile()==null) { 
-					throw new ClientException("MEG File found in unexpected directory location (MEG files should reside under a directory beginning with the subject label)");
-				}
-				if (this.subjectLbl == null) {
-					this.subjectLbl = megGGParent.getParentFile().getName().replaceFirst("_.*$","");
-					this.expLbl = newExpLbl();
-				}
-				if (!returnMap.keySet().contains(megGGParent)) {
-					final SortedMap<File,ArrayList<File>> parentMap = new TreeMap<File,ArrayList<File>>(zipFileCompare);
-					final ArrayList<File> megList = new ArrayList<File>();
-					megList.add(zipFile);
-					zipI.remove();
-					parentMap.put(megParent,megList);
-					returnMap.put(megGGParent,parentMap);
-				} else if (!returnMap.get(megGGParent).keySet().contains(megParent)){
-					final ArrayList<File> megList = new ArrayList<File>();
-					megList.add(zipFile);
-					zipI.remove();
-					returnMap.get(megGGParent).put(megParent,megList);
-				} else {
-					returnMap.get(megGGParent).get(megParent).add(zipFile);
-					zipI.remove();
-				}
-			}
-		}
-		
-		return returnMap;
-		
 	}
 
 	private String newExpLbl() {
@@ -436,30 +175,6 @@ public class HCPMegRepresentation {
 		}
 		catch (IOException e){};
         return tryLbl.toString();
-	}
-
-	// need to re-write this for KIT
-	private boolean isMegFile(File zipFile) {
-		if (!zipFile.isFile()) {
-			return false;
-		}
-		for (final String compare : Arrays.asList(MEG_FILES)) {
-			
-			if (zipFile.getName().matches(compare)) {
-				return true;
-			}
-		}
-		for (final File f : zipFile.getParentFile().listFiles()) {
-			if (f.equals(zipFile)) {
-				continue;
-			}
-			for (final String compare : Arrays.asList(MEG_FILES)) {
-				if (zipFile.getName().matches(compare)) {
-					return true;
-				}
-			}
-		}
-		return false;
 	}
 
 	private ArrayList<File> getFileListFromDir(File source) {
@@ -510,7 +225,7 @@ public class HCPMegRepresentation {
 		return scanList;
 	}
 	
-	public class MEGExperiment implements Comparable<HCPMegRepresentation.MEGExperiment> {
+	public class MEGExperiment implements Comparable<MegRepresentation.MEGExperiment> {
 		
 		private String expID; 			// ID of the experiment
 		private String expSubj;			// ID of the subject (just for now...)
@@ -553,7 +268,7 @@ public class HCPMegRepresentation {
 
 	}
 
-	public class MEGScan implements Comparable<HCPMegRepresentation.MEGScan> {
+	public class MEGScan implements Comparable<MegRepresentation.MEGScan> {
 		
 		private String scanID; 
 		private String scanLbl; 
@@ -595,7 +310,7 @@ public class HCPMegRepresentation {
 
 	}
 	
-	public class MEGSession implements Comparable<HCPMegRepresentation.MEGSession>
+	public class MEGSession implements Comparable<MegRepresentation.MEGSession>
 	{
 		private String sessionID; 
 		private String sessionDateStr; 		// will be retreived automatically eventually
@@ -685,29 +400,6 @@ public class HCPMegRepresentation {
 	{	
 		this.proj = proj;
 		
-		
-		//if (!destination.exists()) {
-		//	throw new ClientException("ERROR:  Destination directory does not exist.",new Exception());
-		//}
-		// the location in the archive where the data will go
-		/*
-		final File sessionDir = new File(destination, expLbl + File.separator + "SCANS");
-		try
-		{
-			returnList.add(sessionDir.getCanonicalPath());
-		}
-		catch (IOException e){}
-		
-		sessionDir.mkdirs();*/
-		/*
-		File resourceDir = null;
-		// For now, don't create INFO resource when building under the new format
-		
-		if (dirStructure==null || dirStructure.keySet().size()<=0) {
-			resourceDir = new File(destination,expLbl + File.separator + "RESOURCES" + File.separator + "INFO");
-			resourceDir.mkdirs();
-		}*/
-		
 		final XnatMegsessiondataBean session = new XnatMegsessiondataBean();
 		
 		final XnatSubjectdata subj=XnatSubjectdata.GetSubjectByProjectIdentifier(proj.getId(),subjectLbl, user, false);
@@ -731,40 +423,9 @@ public class HCPMegRepresentation {
 		return buildMegArchiveSessionFromScanList(session, user);
 	}
 	
-	private Date dirToDateTime(File dir) {
-		if (dir.isDirectory()) {
-			try {
-				final Date returnDate = DDT_DF.parse(dir.getName().replaceAll(DDT_SUBST,"%"));
-				if (returnDate!=null) {
-					return returnDate;
-				}
-			} catch (ParseException e) { }
-		} 
-		return null;
-	}
-		
-	private Date dirStructureToDate(SortedMap<File, SortedMap<File, ArrayList<File>>> dirStructure) {
-		for (final File f1 : dirStructure.keySet()) {
-			for (final File f2 : dirStructure.get(f1).keySet()) {
-				final String dirName = f2.getParentFile().getName();
-				try {
-					final Date returnDate = STD_DF.parse(dirName);
-					if (returnDate!=null) {
-						return returnDate;
-					}
-				} catch (ParseException e) {
-					// Do nothing, try next file
-				}
-			}
-		}
-		return null;
-	}
-	
 	public Date ReadConFileDate(File conFile) throws FileNotFoundException
 	{
-		// Map<String, Object>
-		// Read the con file and return some information
-		final String date_out;
+		// Read the con file and return the date
 		long timeOffset = 0x410L;
 		try
 		{
@@ -798,15 +459,6 @@ public class HCPMegRepresentation {
 			path.delete();
 		}
 		catch (SecurityException e){}
-	}
-	
-	private void addNoteToScan(XnatMegscandataBean scan) {
-		if ((scan.getQuality()!=null && scan.getQuality().equalsIgnoreCase("unusable")) ||
-				(scan.getSeriesDescription()!=null && scan.getSeriesDescription().matches("^.*[0-9]$"))) {
-			return;
-		}
-		final String currNote = scan.getNote();
-		scan.setNote((currNote==null || currNote.length()<1)  ? NO_EPRIME_STR : currNote + ", " + NO_EPRIME_STR);
 	}
 
 	private void writeCatalogXML(CatCatalogBean cat, XnatResourcecatalogBean rcat, File runInfoFile, File dir) throws ClientException {
@@ -857,22 +509,6 @@ public class HCPMegRepresentation {
 		} catch (IOException e) {
 			throw new ClientException(e.getMessage(),new Exception());
 		}
-	}
-
-	private int getRunNo(String seriesDesc, HashMap<String, Integer> sdMap) {
-		Integer i = sdMap.get(seriesDesc);
-		i = (i==null) ? 1 : i+1;
-		sdMap.put(seriesDesc,i);
-		return i;
-	}
-
-	private String getBaseDescriptionFromFileName(String name) {
-		for (final String conv : convertMap.keySet()) {
-			if (name.contains(conv)) {
-				return convertMap.get(conv);
-			}
-		}
-		return name;
 	}
 
 	public List<String> buildMegArchiveSessionFromScanList(XnatMegsessiondataBean session, UserI user) throws ClientException
@@ -946,7 +582,7 @@ public class HCPMegRepresentation {
 				}
 
 				final XnatResourcecatalogBean rcat = new XnatResourcecatalogBean();
-				writeCatalogXML(cat, rcat, catFile, destPath);		// dest path *shouldn't* be needed...
+				writeCatalogXML(cat, rcat, catFile, destPath);
 				rcat.setLabel("KIT");
 				rcat.setFormat("BINARY");
 				rcat.setContent("RAW");
@@ -960,7 +596,6 @@ public class HCPMegRepresentation {
 		final File destFile = new File(output_path, expLbl + ".xml");
 		try
 		{
-			Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", destFile.toString(), "-sid", "xml").start();
 			final FileWriter fw = new FileWriter(destFile);
 			session.toXML(fw);
 			fw.close();

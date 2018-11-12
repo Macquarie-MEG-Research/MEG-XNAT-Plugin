@@ -1,4 +1,4 @@
-package org.nrg.hcp.ajax;
+package org.nrg.mqmeg.ajax;
 
 import java.io.IOException;
 import java.sql.SQLException;

@@ -1,11 +1,10 @@
-package org.nrg.hcp.importer;
+package org.nrg.mqmeg.importer;
 
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.ProcessBuilder;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
@@ -15,12 +14,10 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.zip.ZipOutputStream;
 
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.TrueFileFilter;
 import org.apache.log4j.Logger;
 import org.nrg.action.ClientException;
 import org.nrg.action.ServerException;
-import org.nrg.hcp.importer.utils.HCPMegRepresentation;
+import org.nrg.mqmeg.importer.utils.MegRepresentation;
 import org.nrg.xdat.om.XnatProjectdata;
 import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
 import org.nrg.xft.security.UserI;
@@ -39,19 +36,16 @@ import org.python.google.common.collect.Lists;
  *
  */
 @ImporterHandler(handler = "MEG", allowCallsWithoutFiles = true, callPartialUriWrap = false)
-public class HCPMegImporter extends ImporterHandlerA implements Callable<List<String>> {
+public class MegImporter extends ImporterHandlerA implements Callable<List<String>> {
 
 	static final String[] zipExtensions={".zip",".jar",".rar",".ear",".gar",".xar"};
 
-	static Logger logger = Logger.getLogger(HCPMegImporter.class);
+	static Logger logger = Logger.getLogger(MegImporter.class);
 
 	private final FileWriterWrapperI fw;
 	private final UserI user;
 	final Map<String,Object> params;
     private XnatProjectdata proj;
-    
-    // MEG TOC File Name
-    private static final String TOC_FN = "tocf.txt";
 	
 	/**
 	 * 
@@ -62,14 +56,14 @@ public class HCPMegImporter extends ImporterHandlerA implements Callable<List<St
 	 *                      'delete' means delete the pre-existing content.
 	 * @param additionalValues: should include project (subject and experiment are expected to be found in the archive)
 	 */
-	public HCPMegImporter(Object listenerControl, UserI u, FileWriterWrapperI fw, Map<String, Object> params) {
+	public MegImporter(Object listenerControl, UserI u, FileWriterWrapperI fw, Map<String, Object> params) {
 		super(listenerControl, u, fw, params);
 		this.user=u;
 		this.fw=fw;
 		this.params=params;
 	}
 	
-	public HCPMegImporter(UserI u, Map<String, Object> params) {
+	public MegImporter(UserI u, Map<String, Object> params) {
 		this(null, u, null, params);
 	}
 
@@ -77,13 +71,8 @@ public class HCPMegImporter extends ImporterHandlerA implements Callable<List<St
 	public List<String> call() throws ClientException, ServerException {
 		verifyProjectAndSubject();
 		try {
-			// let's call the python script here
 			final List<String> returnList = Lists.newArrayList();
-			if (fw==null) {
-				returnList.addAll(getFileFromBuildLocationAndProcess(params.get("BuildPath").toString()));
-			} else {
-				returnList.addAll(processMegSession());
-			}
+			returnList.addAll(getFileFromBuildLocationAndProcess(params.get("BuildPath").toString()));
 			this.completed("Successfully imported MEG Session");
 			return returnList;
 		} catch (ClientException e) {
@@ -168,110 +157,11 @@ public class HCPMegImporter extends ImporterHandlerA implements Callable<List<St
         //final File tocF = getTocFileFromSourceLoc(source);
         try {
 			// FIX ORDERING MAYBE??
-        	final HCPMegRepresentation megRep = new HCPMegRepresentation(user, proj, buildDir.getAbsolutePath(), SubjID);
+        	final MegRepresentation megRep = new MegRepresentation(user, proj, buildDir.getAbsolutePath(), SubjID);
         	return megRep.buildMegArchiveSession(proj, user);
         } catch (ClientException e) {
         	throw new ClientException("ERROR: Could not build session from uploaded file.  Please check file.", e);
         }
-        
-	}
-
-	private List<String> processMegSession() throws ClientException,ServerException {
-		
-        String cachepath = ArcSpecManager.GetInstance().getGlobalCachePath();
-        final Date d = Calendar.getInstance().getTime();
-        final java.text.SimpleDateFormat formatter = new java.text.SimpleDateFormat ("yyyyMMdd_HHmmss");
-        final String uploadID = formatter.format(d);
-        
-        cachepath+="user_uploads/"+user.getID() + "/" + uploadID + "/";
-        // Make sure each file is uploaded to separate cache directory.  They need to be processed separately.
-        for (int i=1;;i++) {
-        	File countDir = new File(cachepath + "/" + i);
-        	if (!countDir.exists()) {
-        		cachepath =  countDir.getPath();
-        		countDir.mkdirs();
-        		break;
-        	}
-        }
-        // Extract original session to source, build ConnectomeDB archive at dest
-        final File destination = new File(cachepath + "/dest");
-        destination.mkdirs();
-        final File source = new File(cachepath + "/source");
-		source.mkdirs();
-
-		final String SubjID = params.get("SubjectID").toString();
-        
-        final String fileName = fw.getName();
-		final ZipI zipper = getZipper(fileName);
-        
-        try {
-        	if (fileName.endsWith(".zip")) {
-        		zipper.extract(fw.getInputStream(),source.getAbsolutePath());
-        	} else {
-        		// TAR files didn't work extracted by stream
-    			final File cacheFile = new File(source,fileName);
-   				final FileOutputStream fout = new FileOutputStream(cacheFile);
-    			// Binary Copy
-    			final InputStream fin = new BufferedInputStream(fw.getInputStream());
-    			int noOfBytes = 0;
-    			final byte[] b = new byte[8*1024];
-    			while ((noOfBytes = fin.read(b))!=-1) {
-    				fout.write(b,0,noOfBytes);
-    			}
-    			fin.close();
-    			fout.close();
-        		zipper.extract(cacheFile,source.getAbsolutePath(),false);
-        		cacheFile.delete();
-        	}
-        } catch (Exception e) {
-        	throw new ClientException("Archive file is corrupt or not a valid archive file type.");
-        }
-        
-        String[] fileList=source.list();
-        if (fileList==null || fileList.length==0) {
-        	throw new ClientException("Archive file contains no files.");
-        }
-        
-        // Build a representation of the received file archive, then build archive session from representation
-        final File tocF = getTocFileFromSourceLoc(source);
-        final HCPMegRepresentation megRep = new HCPMegRepresentation(user, proj, cachepath, SubjID);
-        return megRep.buildMegArchiveSession(proj, user);
-        
-	}
-
-	private File getTocFileFromSourceLoc(File source) {
-		// Note:  This doesn't work when combined into a single loop
-		for (File f : source.listFiles()) {
-			if (f.isFile() && f.getName().equals(TOC_FN)) {
-				return f;
-			}
-		} 
-		for (File f : source.listFiles()) {
-			if (f.isDirectory()) {
-				return getTocFileFromSourceLoc(f);
-			}
-		}
-		return null;
-	}
-
-	private ZipI getZipper(String fileName) {
-		
-		// Assume file name represents correct compression method
-        String file_extension = null;
-        if (fileName!=null && fileName.indexOf(".")!=-1) {
-        	file_extension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
-        	if (Arrays.asList(zipExtensions).contains(file_extension)) {
-        		return new ZipUtils();
-	        } else if (file_extension.equalsIgnoreCase(".tar")) {
-        		return new TarUtils();
-	        } else if (file_extension.equalsIgnoreCase(".gz") || file_extension.equalsIgnoreCase(".tgz")) {
-	        	TarUtils zipper = new TarUtils();
-	        	zipper.setCompressionMethod(ZipOutputStream.DEFLATED);
-	        	return zipper;
-	        }
-        }
-        // Assume zip-compression for unnamed inbody files
-        return new ZipUtils();
         
 	}
 

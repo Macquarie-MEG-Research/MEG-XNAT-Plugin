@@ -1,4 +1,4 @@
-package org.nrg.hcp.megimporter.components;
+package org.nrg.mqmeg.megimporter.components;
 
 import java.util.Arrays;
 
@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 public class ImporterHandlerPackagesUpdater {
 	
 	/** The hcp importer packages. */
-	final String[] hcpImporterPackages = new String[] { "org.nrg.hcp.importer" };
+	final String[] hcpImporterPackages = new String[] { "org.nrg.mqmeg.importer" };
 	
 	/**
 	 * Inits the it.
