@@ -1,0 +1,7 @@
+/build/
+/bin/
+/.settings/
+/.gradle/
+/build_deploy.sh
+/.vscode/
+/releases/
