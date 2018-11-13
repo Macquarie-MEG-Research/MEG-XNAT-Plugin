@@ -1,33 +1,25 @@
 package org.nrg.mqmeg.importer;
 
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
+import java.io.IOError;
 import java.io.IOException;
-import java.io.InputStream;
-import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collection;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.zip.ZipOutputStream;
 
 import org.apache.log4j.Logger;
 import org.nrg.action.ClientException;
 import org.nrg.action.ServerException;
 import org.nrg.mqmeg.importer.utils.MegRepresentation;
 import org.nrg.xdat.om.XnatProjectdata;
+import org.nrg.xdat.om.XnatSubjectdata;
+import java.lang.ProcessBuilder;
 import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
 import org.nrg.xft.security.UserI;
-import org.nrg.xft.utils.zip.TarUtils;
-import org.nrg.xft.utils.zip.ZipI;
-import org.nrg.xft.utils.zip.ZipUtils;
 import org.nrg.xnat.restlet.actions.importer.ImporterHandler;
 import org.nrg.xnat.restlet.actions.importer.ImporterHandlerA;
 import org.nrg.xnat.restlet.util.FileWriterWrapperI;
-import org.nrg.xnat.turbine.utils.ArcSpecManager;
 import org.python.google.common.collect.Lists;
 
 /**
@@ -43,7 +35,8 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 	static Logger logger = Logger.getLogger(MegImporter.class);
 
 	private final FileWriterWrapperI fw;
-	private final UserI user;
+    private final UserI user;
+    private final XnatSubjectdata subject;
 	final Map<String,Object> params;
     private XnatProjectdata proj;
 	
@@ -56,21 +49,23 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 	 *                      'delete' means delete the pre-existing content.
 	 * @param additionalValues: should include project (subject and experiment are expected to be found in the archive)
 	 */
-	public MegImporter(Object listenerControl, UserI u, FileWriterWrapperI fw, Map<String, Object> params) {
+	public MegImporter(Object listenerControl, UserI u, FileWriterWrapperI fw, Object subject, Map<String, Object> params) {
 		super(listenerControl, u, fw, params);
 		this.user=u;
-		this.fw=fw;
+        this.fw=fw;
+        this.subject = XnatSubjectdata.getXnatSubjectdatasById(subject, user, true);
 		this.params=params;
 	}
 	
-	public MegImporter(UserI u, Map<String, Object> params) {
-		this(null, u, null, params);
+	public MegImporter(UserI u, Object subject, Map<String, Object> params) {
+		this(null, u, null, subject, params);
 	}
 
 	@Override
 	public List<String> call() throws ClientException, ServerException {
 		verifyProjectAndSubject();
 		try {
+            Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", subject.getLabel(), "-sid", "blah").start();
 			final List<String> returnList = Lists.newArrayList();
 			returnList.addAll(getFileFromBuildLocationAndProcess(params.get("BuildPath").toString()));
 			this.completed("Successfully imported MEG Session");
@@ -98,19 +93,7 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 		if (!buildDir.isDirectory()) {
 			clientFailed("ERROR:  Build path does not exist or is not a directory");
 		}
-		//Collection<File> fileList = FileUtils.listFiles(buildDir, TrueFileFilter.TRUE, TrueFileFilter.TRUE);
-		/*if (fileList.size()<1) {
-			clientFailed("ERROR:  No file has been specified");
-		}*/
-		/*if (fileList.size()>1) {
-			clientFailed("ERROR:  This importer supports processing only one file per upload");
-		}*/
-		// Iterate over CSV file, optionally updating records and saving new ones
-		//for (File f : fileList) {
 		return processMegFolder(buildDir);
-		//}
-		//return null;
-		
 	}
 
 	private void verifyProjectAndSubject() throws ClientException {
@@ -131,36 +114,23 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 		throw new ClientException(fmsg,new Exception());
 	}
 
-	private List<String> processMegFolder(File buildDir) throws ClientException,ServerException {
-		
-
-        final File destination;
-		final File source;
-		final String SubjID = params.get("SubjectID").toString();
-		
-		// don't want these any more
-		try {
-			destination = new File(buildDir.getCanonicalPath() + "/dest");
-			//destination.mkdirs();
-        	source = new File(buildDir.getCanonicalPath() + "/source");
-        	//source.mkdirs();
-		} catch (IOException e) {
-			throw new ServerException(e);
-		}
-        
+    private List<String> processMegFolder(File buildDir) throws ClientException, ServerException
+    {
         String[] fileList=buildDir.list();
         if (fileList==null || fileList.length==0) {
         	throw new ClientException("Archive file contains no files.");
         }
-        
-        // Build a representation of the received file archive, then build archive session from representation
-        //final File tocF = getTocFileFromSourceLoc(source);
+
         try {
-			// FIX ORDERING MAYBE??
-        	final MegRepresentation megRep = new MegRepresentation(user, proj, buildDir.getAbsolutePath(), SubjID);
+            Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", "heelo", "-sid", "wow").start();
+        	final MegRepresentation megRep = new MegRepresentation(user, proj, subject, buildDir.getAbsolutePath());
         	return megRep.buildMegArchiveSession(proj, user);
         } catch (ClientException e) {
         	throw new ClientException("ERROR: Could not build session from uploaded file.  Please check file.", e);
+        }
+        // hack to print message
+        catch (IOException e){
+            throw new ClientException("ERROR: Could not build session from uploaded file.  Please check file.", e);
         }
         
 	}

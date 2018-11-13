@@ -17,15 +17,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class ImporterHandlerPackagesUpdater {
 	
-	/** The hcp importer packages. */
-	final String[] hcpImporterPackages = new String[] { "org.nrg.mqmeg.importer" };
+	/** The importer packages. */
+	final String[] ImporterPackages = new String[] { "org.nrg.mqmeg.importer" };
 	
 	/**
 	 * Inits the it.
 	 */
 	@PostConstruct
 	public void initIt() {
-		this.packages.addAll(Arrays.asList(hcpImporterPackages));
+		this.packages.addAll(Arrays.asList(ImporterPackages));
 	}
 	
 	/**

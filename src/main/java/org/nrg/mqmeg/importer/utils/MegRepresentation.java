@@ -8,24 +8,13 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.lang.ProcessBuilder;
+//import java.lang.ProcessBuilder;      // used to do python logging
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.SortedMap;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.commons.io.EndianUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -63,62 +52,38 @@ public class MegRepresentation {
 	
 	static Logger logger = Logger.getLogger(MegRepresentation.class);
 
-	private String patientID; 
 	private String subjectLbl;
 	private String expLbl;
 	private File megDirectory; 
-	private UserI user;
+    private UserI user;
+    private XnatSubjectdata subject;
 	private String cachepath;
     private XnatProjectdata proj;
-    private final Map<String,TreeSet<XnatMegscandataBean>> scanTypeMap = new HashMap<String,TreeSet<XnatMegscandataBean>>();
-    private final Map<String,TreeSet<XnatMegscandataBean>> usableScanTypeMap = new HashMap<String,TreeSet<XnatMegscandataBean>>();
 	private List<String> returnList = new ArrayList<String>();
 	
 	private ArrayList<MEGExperiment> scanList; 
-	private SortedMap<File,SortedMap<File,ArrayList<File>>> dirStructure;
 	
-	private static final String[] MEG_FILES = { "c,rfDC","hs_file","config","e,rfhp[0-9.]*Hz,COH","e,rfhp[0-9.]*Hz,COH1" };
-    private static final Map<String,String> convertMap;
-	private static final DateFormat DDT_DF = new SimpleDateFormat("MM%dd%yy%HH%mm"); 
-	private static final String DDT_SUBST = "\\D"; 
 	private static final DateFormat SDA_DF = new SimpleDateFormat("MM/dd/yy HH:mm"); 
-	private static final DateFormat STD_DF = new SimpleDateFormat("MM%dd%yy"); 
-	static final String NO_EPRIME_STR = "Uploader found no e-prime files for this scan";
-
-    static {
-    	
-        final Map<String,String> tmap = new HashMap<String,String>();
-        tmap.put("RNois","Rnoise");
-        tmap.put("PNois","Pnoise");
-        tmap.put("BioCl","Biocal");
-        tmap.put("Rest","Restin");
-        tmap.put("WkMem","Wrkmem");
-        tmap.put("Motor","Motort");
-        tmap.put("Sentn","Sentnc");
-        tmap.put("Story","StoryM");
-        convertMap = Collections.unmodifiableMap(tmap);
-    }
 	
 	/*
 	 * Create MEG Representation from newer format (no tocf file).  Builds archive session from the representation.
 	 * @author Mike Hodge <hodgem@mir.wustl.edu>
 	 */
-	public MegRepresentation(UserI user, XnatProjectdata proj, final String cachepath, String SubjID) throws ClientException {
+	public MegRepresentation(UserI user, XnatProjectdata proj, XnatSubjectdata subject, final String cachepath) throws ClientException {
 		final ArrayList<File> fileList = getFileListFromDir(new File(cachepath));
 
 		this.proj = proj;
-		this.user = user;
-		this.subjectLbl = SubjID;
+        this.user = user;
+        this.subject = subject;
+		this.subjectLbl = subject.getLabel();
 		this.expLbl = newExpLbl();
 		this.cachepath = cachepath;
-
-		//this.dirStructure = getMegDirStructure(zipList);
 
 		// construct a scan list:
 		this.scanList = new ArrayList<MEGExperiment>();
 		final MEGExperiment megScan = new MEGExperiment();
 		megScan.setExpID(proj.getId());
-		megScan.setExpSubj(SubjID);
+		megScan.setExpSubj(subjectLbl);
 		megScan.setSessionList(new ArrayList<MEGSession>());
 		scanList.add(megScan);
 		// add a new session:
@@ -146,9 +111,7 @@ public class MegRepresentation {
 			catch (IOException e){}
 			catch (URISyntaxException e){}
 		}
-
 	}
-
 
 	private static String getFileExtension(File file)
 	{
@@ -169,11 +132,12 @@ public class MegRepresentation {
         	tryLbl.append(i);
         	al=XnatMegsessiondata.getXnatMegsessiondatasByField("xnat:megSessionData/label",tryLbl.toString(), user, false);
         	i++;
-		}
+        }
+        /*
 		try {
 			Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", Integer.toString(i-1), "-sid", "newExpLbl").start();
 		}
-		catch (IOException e){};
+		catch (IOException e){};*/
         return tryLbl.toString();
 	}
 
@@ -395,7 +359,7 @@ public class MegRepresentation {
 		return str;
 	}
 	
-	
+	// Main function called by MegImporter
 	public List<String> buildMegArchiveSession(XnatProjectdata proj, UserI user) throws ClientException
 	{	
 		this.proj = proj;
@@ -464,7 +428,7 @@ public class MegRepresentation {
 	private void writeCatalogXML(CatCatalogBean cat, XnatResourcecatalogBean rcat, File runInfoFile, File dir) throws ClientException {
 		try {
 			// ensure the directory exists
-			Process processa = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", runInfoFile.toString(), "-sid", "writecatxml_a").start();
+			//Process processa = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", runInfoFile.toString(), "-sid", "writecatxml_a").start();
 			runInfoFile.getParentFile().mkdirs();
 			final FileWriter fw = new FileWriter(runInfoFile);
 			cat.toXML(fw);
@@ -472,7 +436,7 @@ public class MegRepresentation {
 			// Set URI to archive path
 			final String path = ArcSpecManager.GetInstance().getArchivePathForProject(proj.getId()) + proj.getCurrentArc() + File.separator + expLbl +
 				File.separator + "SCANS" + File.separator + Utils.getRelativeURI(dir,runInfoFile);
-			Process processb = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", path.toString(), "-sid", "writecatxml_b").start();
+			//Process processb = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", path.toString(), "-sid", "writecatxml_b").start();
 			rcat.setUri(path);
 			//rcat.setUri(runInfoFile.getCanonicalPath());
 		} catch (IOException e) {
@@ -542,7 +506,7 @@ public class MegRepresentation {
 					}
 					try
 					{
-						Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m",mfile.getFileIn().toString(), "-sid", "path_in").start();
+						//Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m",mfile.getFileIn().toString(), "-sid", "path_in").start();
 						// move the file to the output directory
 						if (StringUtils.containsIgnoreCase(mfile.getFileType(), "CON"))
 						{
@@ -611,19 +575,19 @@ public class MegRepresentation {
 			final XFTItem item = reader.parse(destFile);
 			final XnatMegsessiondata megdat = (XnatMegsessiondata)BaseElement.GetGeneratedItem(item);
 			final String new_id = XnatExperimentdata.CreateNewID();
-			Process processb = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", new_id.toString(), "-sid", "new_id").start();
+			//Process processb = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", new_id.toString(), "-sid", "new_id").start();
 			megdat.setId(new_id);
 			
 			final PersistentWorkflowI wrk = PersistentWorkflowUtils.buildOpenWorkflow(user, megdat.getItem(),
 					EventUtils.newEventInstance(EventUtils.CATEGORY.DATA, EventUtils.TYPE.WEB_SERVICE, EventUtils.CREATE_VIA_WEB_SERVICE, null, null));
 			final EventMetaI ci = wrk.buildEvent();
 
-			final String expectedPath=megdat.getExpectedSessionDir().getAbsolutePath().replace('\\', '/');
-			Process process2 = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", expectedPath.toString(), "-sid", "expected").start();		// ~/arc001/Session_X
+			//final String expectedPath=megdat.getExpectedSessionDir().getAbsolutePath().replace('\\', '/');
+			//Process process2 = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", expectedPath.toString(), "-sid", "expected").start();		// ~/arc001/Session_X
 
 			if (SaveItemHelper.authorizedSave(megdat,user,false,false,ci)) {
 				PersistentWorkflowUtils.complete(wrk, ci);
-				final String p = ArcSpecManager.GetInstance().getArchivePathForProject(proj.getId()) + proj.getCurrentArc();
+				//final String p = ArcSpecManager.GetInstance().getArchivePathForProject(proj.getId()) + proj.getCurrentArc();
 				//returnList.add(p);
 			} else {
 				PersistentWorkflowUtils.fail(wrk,ci);
