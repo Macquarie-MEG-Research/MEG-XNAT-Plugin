@@ -1,4 +1,4 @@
-def pluginVersion = '0.1.0-b38'
+def pluginVersion = '0.1.0-b42'
 
 group 'MQ.MEG'
 version pluginVersion

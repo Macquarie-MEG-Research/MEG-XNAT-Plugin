@@ -65,7 +65,6 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 	public List<String> call() throws ClientException, ServerException {
 		verifyProjectAndSubject();
 		try {
-            Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", subject.getLabel(), "-sid", "blah").start();
 			final List<String> returnList = Lists.newArrayList();
 			returnList.addAll(getFileFromBuildLocationAndProcess(params.get("BuildPath").toString()));
 			this.completed("Successfully imported MEG Session");
@@ -114,6 +113,11 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
 		throw new ClientException(fmsg,new Exception());
 	}
 
+    /**
+     * Process the MEG folder.
+     * We take the information passed to this class to the MegRepresentation class.
+     * This class then has the buildMegArchiveSession method called to actually generate all the XNAT session info and associate it with the files
+     */
     private List<String> processMegFolder(File buildDir) throws ClientException, ServerException
     {
         String[] fileList=buildDir.list();
@@ -122,15 +126,10 @@ public class MegImporter extends ImporterHandlerA implements Callable<List<Strin
         }
 
         try {
-            Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", "heelo", "-sid", "wow").start();
         	final MegRepresentation megRep = new MegRepresentation(user, proj, subject, buildDir.getAbsolutePath());
         	return megRep.buildMegArchiveSession(proj, user);
         } catch (ClientException e) {
         	throw new ClientException("ERROR: Could not build session from uploaded file.  Please check file.", e);
-        }
-        // hack to print message
-        catch (IOException e){
-            throw new ClientException("ERROR: Could not build session from uploaded file.  Please check file.", e);
         }
         
 	}

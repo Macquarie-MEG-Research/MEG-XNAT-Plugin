@@ -9,9 +9,7 @@ import org.springframework.context.annotation.ComponentScan;
 			name = "Macquarie University MEG importer plugin",
 			description = "Upload KIT MEG data"
 		)
-@ComponentScan({ 
-	"org.nrg.mqmeg.megimporter.components"
-	})
+@ComponentScan({"org.nrg.mqmeg.megimporter.components"})
 public class MEGImporterPlugin {
 	
 	/** The logger. */

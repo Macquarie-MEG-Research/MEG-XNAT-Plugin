@@ -17,6 +17,7 @@ import java.util.Date;
 import java.util.List;
 import org.apache.commons.io.EndianUtils;
 import org.apache.commons.io.FileUtils;
+//import org.apache.commons.io.IOUtils;     // potentially needed to read whether the con file is a child or adult one
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.nrg.action.ClientException;
@@ -66,8 +67,9 @@ public class MegRepresentation {
 	private static final DateFormat SDA_DF = new SimpleDateFormat("MM/dd/yy HH:mm"); 
 	
 	/*
-	 * Create MEG Representation from newer format (no tocf file).  Builds archive session from the representation.
+	 * Create MEG Representation  and builds archive session from the representation.
 	 * @author Mike Hodge <hodgem@mir.wustl.edu>
+     * with heavy modification for KIT/BIDS folders by Matt Sanderson <matt.sanderson@mq.edu.au>
 	 */
 	public MegRepresentation(UserI user, XnatProjectdata proj, XnatSubjectdata subject, final String cachepath) throws ClientException {
 		final ArrayList<File> fileList = getFileListFromDir(new File(cachepath));
@@ -121,6 +123,14 @@ public class MegRepresentation {
 		else return "";
 	}
 
+    /**
+     * Modify the experiment label so that it automatically reflects the session number.
+     * If the session being uploaded is the only one for the subject the session number
+     * will remain the subject number. However if there are multiple sessions the session
+     * ID will be <subject ID>_<number of session> to avoid ambiguity.
+     * @return
+     * New label to change the experiment label to
+     */
 	private String newExpLbl() {
 		final String lbl = this.subjectLbl;
        	StringBuilder tryLbl = new StringBuilder(lbl);
@@ -133,11 +143,6 @@ public class MegRepresentation {
         	al=XnatMegsessiondata.getXnatMegsessiondatasByField("xnat:megSessionData/label",tryLbl.toString(), user, false);
         	i++;
         }
-        /*
-		try {
-			Process process = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", Integer.toString(i-1), "-sid", "newExpLbl").start();
-		}
-		catch (IOException e){};*/
         return tryLbl.toString();
 	}
 
@@ -366,8 +371,7 @@ public class MegRepresentation {
 		
 		final XnatMegsessiondataBean session = new XnatMegsessiondataBean();
 		
-		final XnatSubjectdata subj=XnatSubjectdata.GetSubjectByProjectIdentifier(proj.getId(),subjectLbl, user, false);
-		if (subj == null) {
+		if (subject == null) {
 			throw new ClientException("ERROR:  Could not build session, subject " + subjectLbl + " does not exist.",new Exception());
 		}
 		final XnatExperimentdata existing=XnatExperimentdata.GetExptByProjectIdentifier(proj.getId(), expLbl, user, false);
@@ -375,42 +379,74 @@ public class MegRepresentation {
 			throw new ClientException("ERROR:  Experiment specified in the MEG archive (" + expLbl + ") already exists.",new Exception());
 		}
 		
-		returnList.add("Creating session (SUBJECT=" + subj.getId() + ",SESSION=" + expLbl);
+		returnList.add("Creating session (SUBJECT=" + subject.getId() + ",SESSION=" + expLbl);
 		
-		session.setSubjectId(subj.getId());
+		session.setSubjectId(subject.getId());
 		session.setProject(proj.getId());
-		session.setLabel(expLbl);		// was expLbl. Needed to change so path could be done correctly
+		session.setLabel(expLbl);
 		session.setModality("MEG");
-		session.setAcquisitionSite("MQ");
-		session.setScanner("MQ MEG");
+        session.setAcquisitionSite("Macquarie University Hearing Hub");
+        session.setScanner("Macquaire MEG System");
 		
 		return buildMegArchiveSessionFromScanList(session, user);
 	}
-	
+    
+    public String ReadConFileScanner(File conFile) throws FileNotFoundException
+    {
+        try (InputStream f = new FileInputStream(conFile))
+        {
+            try
+            {
+                //Process processa = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", "test", "-sid", "readcon_a").start();
+                byte[] bytearray = new byte[0x80];
+                //Process processb = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", "test", "-sid", "readcon_b").start();
+                f.read(bytearray, 0x20C, 0x80);     // this line doesn't work....
+                //Process processc = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", "ahhh", "-sid", "readcon_c").start();
+                String result = new String(bytearray);
+                //Process processd = new ProcessBuilder("/usr/bin/python3", "/home/ec2-user/pylog.py", "-m", result, "-sid", "readcon_d").start();
+                if (result.contains("Children"))
+                {
+                    return "Macquarie Child MEG System";
+                }
+                else
+                {
+                    return "Macquaire MEG System";
+                }
+            }
+            catch (IOException e){}
+        }
+        catch (FileNotFoundException e)
+		{
+			throw new FileNotFoundException("Cannot find the specified file" + conFile.toString());
+        }
+        catch (IOException e) {}
+
+        return "Unknown";
+    }
+
 	public Date ReadConFileDate(File conFile) throws FileNotFoundException
 	{
 		// Read the con file and return the date
 		long timeOffset = 0x410L;
-		try
+		try (InputStream f = new FileInputStream(conFile))
 		{
-			InputStream f = new FileInputStream(conFile);
 			try
 			{
 				// jump to the start of the time offset:
 				f.skip(timeOffset);
 				// now read the time
 				int val = EndianUtils.readSwappedInteger(f);
-				f.close();
 				long time = 1000L*val;
 				Date date = new Date(time);
 				return date;
 			}
-			catch (IOException e){}
+            catch (IOException e) {}
 		}
 		catch (FileNotFoundException e)
 		{
 			throw new FileNotFoundException("Cannot find the specified file" + conFile.toString());
-		}
+        }
+        catch (IOException e) {}
 		
 
 		return null;
@@ -446,35 +482,6 @@ public class MegRepresentation {
 		}
 	}
 
-	private void addFileToCatalog(CatCatalogBean cat, File f, File dir, boolean moveFile) throws ClientException {
-		addFileToCatalog(cat,f,dir,null,moveFile);
-	}
-
-	private void addFileToCatalog(CatCatalogBean cat, File f, File dir,String uriDir, boolean moveFile) throws ClientException {
-		final File outFile = new File(dir,f.getName());
-		try {
-			if (moveFile) {
-				FileUtils.moveFile(f,outFile);
-			} else {
-				FileUtils.copyFile(f,outFile);
-			}
-			final CatEntryBean catEntry = new CatEntryBean();
-			catEntry.setName(outFile.getName());
-			StringBuilder uriSB = new StringBuilder();
-			if (uriDir!=null) {
-				uriSB.append(uriDir);
-				if (!uriDir.endsWith("/")) {
-					uriSB.append("/");
-				}
-			}
-			uriSB.append(outFile.getName());
-			catEntry.setUri(uriSB.toString());
-			cat.addEntries_entry(catEntry);
-		} catch (IOException e) {
-			throw new ClientException(e.getMessage(),new Exception());
-		}
-	}
-
 	public List<String> buildMegArchiveSessionFromScanList(XnatMegsessiondataBean session, UserI user) throws ClientException
 	{
 
@@ -492,7 +499,8 @@ public class MegRepresentation {
 				scan.setId(msess.getSessionID());
 				scan.setType("MEG");
 				scan.setSeriesDescription("MQ MEG data");
-				scan.setQuality("usable");
+                scan.setQuality("usable");
+                scan.setScanner_manufacturer("KIT");
 
 				final File catFile = new File(output_path + File.separator + expLbl + "_catalog.xml");
 				CatCatalogBean cat = new CatCatalogBean();
@@ -511,7 +519,7 @@ public class MegRepresentation {
 						if (StringUtils.containsIgnoreCase(mfile.getFileType(), "CON"))
 						{
 							// reads from each one...
-							session.setDate(ReadConFileDate(sourceFile));
+                            session.setDate(ReadConFileDate(sourceFile));
 						}
 						//FileUtils.moveFileToDirectory(sourceFile, destPath, true);
 						final CatEntryBean catEntry = new CatEntryBean();
